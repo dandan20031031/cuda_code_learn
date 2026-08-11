@@ -1,0 +1,19 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "nvcc build and run",
+            "type": "shell",
+            "command": "cmd",
+            "args": [
+                "/c",
+                "nvcc \"${file}\" -o \"${fileDirname}\\${fileBasenameNoExtension}.exe\" -arch=sm_120 -Xcompiler /utf-8 && \"${fileDirname}\\${fileBasenameNoExtension}.exe\""
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": []
+        }
+    ]
+}
