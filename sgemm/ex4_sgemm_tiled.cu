@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <cuda_runtime.h>
 
-#define TILE_SIZE 16
+#define TILE_SIZE 32
 
 // ============================================================
 // GPU kernel: tiled matrix multiply with shared memory

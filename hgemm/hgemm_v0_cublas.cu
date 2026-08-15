@@ -1,0 +1,102 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <cuda_runtime.h>
+#include <cuda_fp16.h>
+#include <cublas_v2.h>
+
+#define CUDA_CHK(call) do { \
+    cudaError_t _e_ = (call); \
+    if (_e_ != cudaSuccess) { \
+        printf("CUDA ERROR at %s:%d: %s\n", __FILE__, __LINE__, cudaGetErrorString(_e_)); \
+        exit(1); \
+    } \
+} while(0)
+
+#define CUBLAS_CHK(call) do { \
+    cublasStatus_t _s_ = (call); \
+    if (_s_ != CUBLAS_STATUS_SUCCESS) { \
+        printf("CUBLAS ERROR at %s:%d: %d\n", __FILE__, __LINE__, (int)_s_); \
+        exit(1); \
+    } \
+} while(0)
+
+// FP16 输入, FP32 累加, 和你 WMMA 完全一致的精度配置
+void run_cublas_hgemm(cublasHandle_t handle,
+                      const half *d_A, const half *d_B, float *d_C,
+                      int M, int N, int K, float *ms_out)
+{
+    const float alpha = 1.0f;
+    const float beta  = 0.0f;
+
+    // 行优先 C(M×N)=A(M×K)×B(K×N)  等价于  列优先 C^T(N×M)=B^T(N×K)×A^T(K×M)
+    // cuBLAS 只认列优先 → 交换 A/B + 交换 M/N（和 cublasSgemm 一样的 trick）
+    cudaEvent_t start, stop;
+    CUDA_CHK(cudaEventCreate(&start));
+    CUDA_CHK(cudaEventCreate(&stop));
+
+    // 预热
+    CUBLAS_CHK(cublasGemmEx(handle,
+                            CUBLAS_OP_N, CUBLAS_OP_N,
+                            N, M, K,
+                            &alpha,
+                            d_B, CUDA_R_16F, N,   // 列优先视角 = B^T (N×K)
+                            d_A, CUDA_R_16F, K,   // 列优先视角 = A^T (K×M)
+                            &beta,
+                            d_C, CUDA_R_32F, N,   // 输出 FP32 (N×M) 列优先 = C^T
+                            CUDA_R_32F,           // FP32 累加
+                            CUBLAS_GEMM_DEFAULT_TENSOR_OP));
+    CUDA_CHK(cudaDeviceSynchronize());
+
+    CUDA_CHK(cudaEventRecord(start));
+    CUBLAS_CHK(cublasGemmEx(handle,
+                            CUBLAS_OP_N, CUBLAS_OP_N,
+                            N, M, K,
+                            &alpha,
+                            d_B, CUDA_R_16F, N,
+                            d_A, CUDA_R_16F, K,
+                            &beta,
+                            d_C, CUDA_R_32F, N,
+                            CUDA_R_32F,
+                            CUBLAS_GEMM_DEFAULT_TENSOR_OP));
+    CUDA_CHK(cudaEventRecord(stop));
+    CUDA_CHK(cudaEventSynchronize(stop));
+
+    CUDA_CHK(cudaEventElapsedTime(ms_out, start, stop));
+    cudaEventDestroy(start);
+    cudaEventDestroy(stop);
+}
+
+int main() {
+    const int M = 4096, N = 4096, K = 4096;
+
+    printf("\n=== cuBLAS HGEMM (FP16 in, FP32 acc) ===\n");
+    printf("  M=N=K=%d\n", M);
+
+    // 初始化数据
+    half *hA = (half *)malloc(M * K * sizeof(half));
+    half *hB = (half *)malloc(K * N * sizeof(half));
+    for (int i = 0; i < M * K; i++) hA[i] = __float2half((rand() % 100) / 100.0f);
+    for (int i = 0; i < K * N; i++) hB[i] = __float2half((rand() % 100) / 100.0f);
+
+    half *dA, *dB;
+    float *dC;
+    CUDA_CHK(cudaMalloc(&dA, M * K * sizeof(half)));
+    CUDA_CHK(cudaMalloc(&dB, K * N * sizeof(half)));
+    CUDA_CHK(cudaMalloc(&dC, M * N * sizeof(float)));
+    CUDA_CHK(cudaMemcpy(dA, hA, M * K * sizeof(half), cudaMemcpyHostToDevice));
+    CUDA_CHK(cudaMemcpy(dB, hB, K * N * sizeof(half), cudaMemcpyHostToDevice));
+
+    cublasHandle_t handle;
+    CUBLAS_CHK(cublasCreate(&handle));
+
+    float ms;
+    run_cublas_hgemm(handle, dA, dB, dC, M, N, K, &ms);
+
+    double tflops = 2.0 * M * N * K / (ms / 1000.0) / 1e12;
+    printf("  Time: %.4f ms  |  %.2f TFLOPS\n\n", ms, tflops);
+
+    cublasDestroy(handle);
+    free(hA); free(hB);
+    cudaFree(dA); cudaFree(dB); cudaFree(dC);
+    return 0;
+}

@@ -202,7 +202,7 @@ int main(){
     int M=4096,N=4096,K=4096;
     size_t szA=M*K*sizeof(float),szB=K*N*sizeof(float),szC=M*N*sizeof(float);
 
-    printf("\n=== ex9: Kernel 11 Double Buffering ===\n");
+    printf("\n=== ex9: Double Buffering ===\n");
     printf("  BM=%d BN=%d BK=%d  Shared=16KB  Block=256  Grid=%dx%d\n",
            BM,BN,BK,(N+BN-1)/BN,(M+BM-1)/BM);
 

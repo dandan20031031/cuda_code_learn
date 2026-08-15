@@ -252,7 +252,7 @@ int main()
     int dev; cudaGetDevice(&dev);
     cudaDeviceProp prop;
     cudaGetDeviceProperties(&prop, dev);
-    printf("\n=== Kernel 10: Register Prefetching ===\n");
+    printf("\n===ex8_reg_prefetch: Register Prefetching ===\n");
     printf("  GPU: %s, SM=%d\n", prop.name, prop.multiProcessorCount);
     printf("  BM=%d BN=%d BK=%d  Shared=8KB  Block=256  Grid=%dx%d\n",
            BM, BN, BK, (N+BN-1)/BN, (M+BM-1)/BM);
